@@ -1,4 +1,4 @@
-defmodule RF69.Hal.CircuitsGPIO do
+defmodule RF69.HAL.CircuitsGPIO do
   @moduledoc false
   @behaviour RF69.HAL.GPIO
   alias Circuits.GPIO
@@ -19,6 +19,6 @@ defmodule RF69.Hal.CircuitsGPIO do
   end
 
   @impl RF69.HAL.GPIO
-  def gpio_interupt?({:circuits_gpio, _, 1}), do: true
+  def gpio_interupt?({:circuits_gpio, _, _, 1}), do: true
   def gpio_interupt?(_), do: false
 end

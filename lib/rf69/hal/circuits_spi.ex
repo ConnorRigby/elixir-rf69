@@ -1,4 +1,4 @@
-defmodule RF69.Hal.CircuitsSPI do
+defmodule RF69.HAL.CircuitsSPI do
   @behaviour RF69.HAL.SPI
   alias Circuits.SPI
 

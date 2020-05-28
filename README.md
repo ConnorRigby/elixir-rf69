@@ -74,6 +74,8 @@ The API defined is pretty low level. If you want to use it, you should probably
 wrap the radio server in your own genserver. See the [`Logger` Example](lib/rf69/logger_receiver.ex)
 for an example.
 
+[There is a repo here](https://github.com/ConnorRigby/elixir-rf69-examples) with some more examples
+
 ## Acking
 
 By default the rf69 server will respond to acks If your implementation requires user acking, when starting

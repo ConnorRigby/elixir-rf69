@@ -20,7 +20,7 @@ Interact with RFM69HCW radio modules via spi.
 * [x] AES encryption
 * [ ] Usage documentation
 * [ ] RSSI value reading
-* [ ] Processing packet data outside of the library
+* [x] Processing packet data outside of the library
 * [ ] Packet recv/send telemetry (because why not?)
 * [ ] Unit tests?
 

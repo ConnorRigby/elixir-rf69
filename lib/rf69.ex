@@ -23,7 +23,7 @@ defmodule RF69 do
   use GenServer
 
   import RF69.Util
-  alias RF69.HAL
+  alias RF69.{HAL, RSSI}
   require Logger
 
   defstruct reset: nil,
@@ -58,6 +58,7 @@ defmodule RF69 do
     * `is_ack?` - boolean. See the Acking section of the docs for more info
     * `payload` - binary up to 66 bytes.
     * `rssi` - dbm value of the RSSI when this packet was received
+    * `rssi_percent` - percentage value calculated from RSSI
     """
 
     @type t() :: %Packet{
@@ -66,14 +67,16 @@ defmodule RF69 do
             ack_requested?: boolean(),
             is_ack?: boolean(),
             payload: binary(),
-            rssi: neg_integer()
+            rssi: neg_integer(),
+            rssi_percent: 0..100
           }
     defstruct target_id: nil,
               sender_id: nil,
               ack_requested?: nil,
               is_ack?: nil,
               payload: nil,
-              rssi: nil
+              rssi: nil,
+              rssi_percent: nil
   end
 
   @type node_id() :: integer()
@@ -356,7 +359,8 @@ defmodule RF69 do
       ack_requested?: ack_requested == 1,
       is_ack?: is_ack == 1,
       payload: payload,
-      rssi: rssi
+      rssi: rssi,
+      rssi_percent: RSSI.dbm_to_percent(rssi)
     }
 
     send(rf69.receiver_pid, packet)

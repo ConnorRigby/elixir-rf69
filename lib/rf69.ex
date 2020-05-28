@@ -7,6 +7,7 @@ defmodule RF69 do
 
   import RF69.Util
   alias RF69.HAL
+  require Logger
 
   defstruct reset: nil,
             ss: nil,
@@ -23,7 +24,8 @@ defmodule RF69 do
             irq_pin: 13,
             rx_pin: nil,
             tx_pin: nil,
-            spi_bus_name: "spidev0.0"
+            spi_bus_name: "spidev0.0",
+            encrypt_key: nil
 
   defmodule Packet do
     defstruct target_id: nil,
@@ -50,7 +52,8 @@ defmodule RF69 do
           irq_pin: integer(),
           rx_pin: integer() | nil,
           tx_pin: integer() | nil,
-          spi_bus_name: Striing.t()
+          spi_bus_name: Striing.t(),
+          encrypt_key: <<_::16, _::_*8>> | nil
         }
 
   @type packet :: %Packet{
@@ -68,6 +71,7 @@ defmodule RF69 do
   * node_id: integer (default: 1)
   * network_id: integer (default: 100)
   * isRFM69HW: boolean (default: true)
+  * encrypt_key: 16 byte binary (default: nil)
   * reset_pin: pin number
   * ss_pin: pin number
   * irq_pin: pin number
@@ -107,7 +111,7 @@ defmodule RF69 do
       payload: message
     }
 
-    rf69 = send_packet(packet, rf69)
+    rf69 = send_packet(rf69, packet)
     {:reply, :ok, rf69}
   end
 
@@ -135,6 +139,9 @@ defmodule RF69 do
     :ok = HAL.gpio_set_interrupts(rf69.irq, :rising)
 
     rf69 = set_mode(rf69, :STANDBY)
+
+    rf69 = encrypt(rf69)
+
     # read_all_reg_values(rf69)
     send(self(), :receive_begin)
     {:noreply, rf69}
@@ -178,6 +185,22 @@ defmodule RF69 do
     end
   end
 
+  def encrypt(%RF69{encrypt_key: nil} = rf69) do
+    disable_encryption(rf69)
+  end
+
+  def encrypt(%RF69{encrypt_key: key} = rf69) when byte_size(key) == 16 do
+    rf69
+    |> set_mode(:STANDBY)
+    |> write_reg(:AESKEY1, key)
+    |> enable_encryption()
+  end
+
+  def encrypt(rf69) do
+    Logger.error("Encryption key must be exactly 16 bytes")
+    disable_encryption(rf69)
+  end
+
   def handle_interupt(rf69) do
     <<
       _fifo_full::1,
@@ -191,8 +214,11 @@ defmodule RF69 do
     >> = read_reg_bin(rf69, :IRQFLAGS2)
 
     if payload_ready == 1 do
-      rf69 = recv_packet(rf69)
-      rf69 = set_mode(rf69, :RX)
+      rf69 =
+        rf69
+        |> recv_packet()
+        |> set_mode(:RX)
+
       {:noreply, rf69}
     else
       {:noreply, rf69}
@@ -200,8 +226,8 @@ defmodule RF69 do
   end
 
   defp handle_ack(
-         %Packet{ack_requested?: true, target_id: id} = packet,
-         %RF69{node_id: id} = rf69
+         %RF69{node_id: id} = rf69,
+         %Packet{ack_requested?: true, target_id: id} = packet
        ) do
     ack = %Packet{
       packet
@@ -212,20 +238,22 @@ defmodule RF69 do
         payload: <<>>
     }
 
-    send_packet(ack, rf69)
+    send_packet(rf69, ack)
   end
 
-  defp handle_ack(%Packet{is_ack?: true}, rf69) do
+  defp handle_ack(%RF69{} = rf69, %Packet{is_ack?: true}) do
     rf69
   end
 
-  defp handle_ack(_, rf69) do
+  defp handle_ack(%RF69{} = rf69, _no_ack_required) do
     rf69
   end
 
   defp recv_packet(rf69) do
-    rf69 = set_mode(rf69, :STANDBY)
-    select(rf69)
+    rf69 =
+      rf69
+      |> set_mode(:STANDBY)
+      |> select()
 
     # select fifo register
     {:ok, _} = HAL.spi_transfer(rf69.spi, <<0::8>>)
@@ -258,15 +286,12 @@ defmodule RF69 do
 
     IO.inspect(packet, label: "packet received")
 
-    unselect(rf69)
-    handle_ack(packet, rf69)
+    rf69
+    |> unselect()
+    |> handle_ack(packet)
   end
 
-  defp send_packet(%Packet{} = packet, rf69) do
-    rf69 = set_mode(rf69, :STANDBY)
-
-    select(rf69)
-
+  defp send_packet(rf69, %Packet{} = packet) do
     <<target_msb::2, target_lsb::8, sender_msb::2, sender_lsb::8>> =
       <<packet.target_id::10, packet.sender_id::10>>
 
@@ -287,16 +312,26 @@ defmodule RF69 do
       packet.payload::binary
     >>
 
+    rf69 =
+      rf69
+      |> set_mode(:STANDBY)
+      |> select()
+
     # select FIFO register
     {:ok, _} = HAL.spi_transfer(rf69.spi, <<0b10000000>>)
     {:ok, _} = HAL.spi_transfer(rf69.spi, send_packet)
-    unselect(rf69)
 
-    rf69 = set_mode(rf69, :TX)
-    # hack to wait for the fifo to flush.. there's a flag for this
-    # Process.sleep(1000)
-    :ok = block_until_packet_sent(rf69, 50)
+    rf69
+    |> unselect()
+    |> set_mode(:TX)
+    |> block_until_packet_sent(50)
+    |> set_mode(:RX)
 
-    set_mode(rf69, :RX)
+    # rf69
+    # |> set_mode(:STANDBY)
+    # |> write_reg(:FIFO, send_packet)
+    # |> set_mode(:TX)
+    # |> block_until_packet_sent(50)
+    # |> set_mode(:RX)
   end
 end

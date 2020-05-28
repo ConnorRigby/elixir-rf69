@@ -17,7 +17,7 @@ Interact with RFM69HCW radio modules via spi.
 * [x] Receive packets
 * [x] Auto Ack packets
 * [ ] only 915 mhz is currently supported
-* [ ] AES encryption
+* [x] AES encryption
 * [ ] Usage documentation
 * [ ] RSSI value reading
 * [ ] Processing packet data outside of the library

@@ -26,7 +26,9 @@ defmodule RF69 do
             tx_pin: nil,
             spi_bus_name: "spidev0.0",
             encrypt_key: nil,
-            frequency: 915
+            frequency: 915,
+            auto_ack?: true,
+            receiver_pid: nil
 
   defmodule Packet do
     defstruct target_id: nil,
@@ -55,7 +57,9 @@ defmodule RF69 do
           tx_pin: integer() | nil,
           spi_bus_name: Striing.t(),
           encrypt_key: <<_::16, _::_*8>> | nil,
-          frequency: RF69.Frequency.t()
+          frequency: RF69.Frequency.t(),
+          auto_ack?: boolean(),
+          receiver_pid: pid()
         }
 
   @type packet :: %Packet{
@@ -74,6 +78,7 @@ defmodule RF69 do
   * network_id: integer (default: 100)
   * isRFM69HW: boolean (default: true)
   * encrypt_key: 16 byte binary (default: nil)
+  * auto_ack?: boolean (default true)
   * reset_pin: pin number
   * ss_pin: pin number
   * irq_pin: pin number
@@ -81,8 +86,9 @@ defmodule RF69 do
   * rx_pin: pin number (optional)
   * tx_pin: pin number (optional)
   """
-  def start_link(args) do
-    GenServer.start_link(__MODULE__, args)
+  def start_link(args \\ [], opts \\ []) do
+    args = put_in(args, [:receiver_pid], self())
+    GenServer.start_link(__MODULE__, args, opts)
   end
 
   @doc """
@@ -94,6 +100,17 @@ defmodule RF69 do
   end
 
   def send(_pid, _target_id, _ack, _message) do
+    raise ArgumentError, "Message must be less than or equal to 66 bytes in length"
+  end
+
+  @doc "Ack a packet"
+  def ack(rf69_pid, packet, message \\ <<>>)
+
+  def ack(rf69_pid, %Packet{} = packet, message) when byte_size(message) <= 66 do
+    GenServer.call(rf69_pid, {:ack, packet, message})
+  end
+
+  def ack(_rf69_pid, %Packet{}, _message) do
     raise ArgumentError, "Message must be less than or equal to 66 bytes in length"
   end
 
@@ -113,6 +130,21 @@ defmodule RF69 do
       payload: message
     }
 
+    %RF69{} = rf69 = send_packet(rf69, packet)
+    {:reply, :ok, rf69}
+  end
+
+  def handle_call({:ack, packet, message}, _from, rf69) do
+    ack = %Packet{
+      packet
+      | is_ack?: true,
+        ack_requested?: false,
+        target_id: packet.sender_id,
+        sender_id: rf69.node_id,
+        payload: message
+    }
+
+    send_packet(rf69, ack)
     rf69 = send_packet(rf69, packet)
     {:reply, :ok, rf69}
   end
@@ -227,6 +259,11 @@ defmodule RF69 do
     end
   end
 
+  # user handles acking
+  defp handle_ack(%RF69{auto_ack?: false} = rf69, %Packet{}) do
+    rf69
+  end
+
   defp handle_ack(
          %RF69{node_id: id} = rf69,
          %Packet{ack_requested?: true, target_id: id} = packet
@@ -286,7 +323,7 @@ defmodule RF69 do
       payload: payload
     }
 
-    IO.inspect(packet, label: "packet received")
+    send(rf69.receiver_pid, packet)
 
     rf69
     |> unselect()

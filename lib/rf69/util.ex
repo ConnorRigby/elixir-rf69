@@ -199,48 +199,49 @@ defmodule RF69.Util do
     rf69
   end
 
+  # TODO factor out the bitwise nonsense here.
   def write_config(rf69) do
     rf69
     |> write_reg(
-      reg(:OPMODE),
+      :OPMODE,
       rf(:OPMODE_SEQUENCER_ON) ||| rf(:OPMODE_LISTEN_OFF) ||| rf(:OPMODE_STANDBY)
     )
     |> write_reg(
-      reg(:DATAMODUL),
+      :DATAMODUL,
       rf(:DATAMODUL_DATAMODE_PACKET) ||| rf(:DATAMODUL_MODULATIONTYPE_FSK) |||
         rf(:DATAMODUL_MODULATIONSHAPING_00)
     )
-    |> write_reg(reg(:BITRATEMSB), rf(:BITRATEMSB_55555))
-    |> write_reg(reg(:BITRATELSB), rf(:BITRATELSB_55555))
-    |> write_reg(reg(:FDEVMSB), rf(:FDEVMSB_50000))
-    |> write_reg(reg(:FDEVLSB), rf(:FDEVLSB_50000))
+    |> write_reg(:BITRATEMSB, :BITRATEMSB_55555)
+    |> write_reg(:BITRATELSB, :BITRATELSB_55555)
+    |> write_reg(:FDEVMSB, :FDEVMSB_50000)
+    |> write_reg(:FDEVLSB, :FDEVLSB_50000)
     |> Frequency.set_frequency()
-    |> write_reg(reg(:RXBW), rf(:RXBW_DCCFREQ_010) ||| rf(:RXBW_MANT_16) ||| rf(:RXBW_EXP_2))
-    |> write_reg(reg(:DIOMAPPING1), rf(:DIOMAPPING1_DIO0_01))
-    |> write_reg(reg(:DIOMAPPING2), rf(:DIOMAPPING2_CLKOUT_OFF))
-    |> write_reg(reg(:IRQFLAGS2), rf(:IRQFLAGS2_FIFOOVERRUN))
-    |> write_reg(reg(:RSSITHRESH), 220)
+    |> write_reg(:RXBW, rf(:RXBW_DCCFREQ_010) ||| rf(:RXBW_MANT_16) ||| rf(:RXBW_EXP_2))
+    |> write_reg(:DIOMAPPING1, :DIOMAPPING1_DIO0_01)
+    |> write_reg(:DIOMAPPING2, :DIOMAPPING2_CLKOUT_OFF)
+    |> write_reg(:IRQFLAGS2, :IRQFLAGS2_FIFOOVERRUN)
+    |> write_reg(:RSSITHRESH, 220)
     |> write_reg(
-      reg(:SYNCCONFIG),
+      :SYNCCONFIG,
       rf(:SYNC_ON) ||| rf(:SYNC_FIFOFILL_AUTO) ||| rf(:SYNC_SIZE_2) ||| rf(:SYNC_TOL_0)
     )
-    |> write_reg(reg(:SYNCVALUE1), 0x2D)
-    |> write_reg(reg(:SYNCVALUE2), rf69.network_id)
+    |> write_reg(:SYNCVALUE1, 0x2D)
+    |> write_reg(:SYNCVALUE2, rf69.network_id)
     |> write_reg(
-      reg(:PACKETCONFIG1),
+      :PACKETCONFIG1,
       rf(:PACKET1_FORMAT_VARIABLE) ||| rf(:PACKET1_DCFREE_OFF) ||| rf(:PACKET1_CRC_ON) |||
         rf(:PACKET1_CRCAUTOCLEAR_ON) ||| rf(:PACKET1_ADRSFILTERING_OFF)
     )
-    |> write_reg(reg(:PAYLOADLENGTH), 66)
+    |> write_reg(:PAYLOADLENGTH, 66)
     |> write_reg(
-      reg(:FIFOTHRESH),
+      :FIFOTHRESH,
       rf(:FIFOTHRESH_TXSTART_FIFONOTEMPTY) ||| rf(:FIFOTHRESH_VALUE)
     )
     |> write_reg(
-      reg(:PACKETCONFIG2),
+      :PACKETCONFIG2,
       rf(:PACKET2_RXRESTARTDELAY_2BITS) ||| rf(:PACKET2_AUTORXRESTART_ON) ||| rf(:PACKET2_AES_OFF)
     )
-    |> write_reg(reg(:TESTDAGC), rf(:DAGC_IMPROVED_LOWBETA0))
+    |> write_reg(:TESTDAGC, :DAGC_IMPROVED_LOWBETA0)
     |> write_reg(0x255, 0x0)
   end
 

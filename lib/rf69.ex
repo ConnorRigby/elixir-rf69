@@ -25,7 +25,8 @@ defmodule RF69 do
             rx_pin: nil,
             tx_pin: nil,
             spi_bus_name: "spidev0.0",
-            encrypt_key: nil
+            encrypt_key: nil,
+            frequency: 915
 
   defmodule Packet do
     defstruct target_id: nil,
@@ -53,7 +54,8 @@ defmodule RF69 do
           rx_pin: integer() | nil,
           tx_pin: integer() | nil,
           spi_bus_name: Striing.t(),
-          encrypt_key: <<_::16, _::_*8>> | nil
+          encrypt_key: <<_::16, _::_*8>> | nil,
+          frequency: RF69.Frequency.t()
         }
 
   @type packet :: %Packet{

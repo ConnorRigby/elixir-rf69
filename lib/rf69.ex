@@ -35,7 +35,8 @@ defmodule RF69 do
               sender_id: nil,
               ack_requested?: nil,
               is_ack?: nil,
-              payload: nil
+              payload: nil,
+              rssi: nil
   end
 
   @type node_id() :: integer()
@@ -67,7 +68,8 @@ defmodule RF69 do
           sender_id: RF69.node_id(),
           ack_requested?: boolean(),
           is_ack?: boolean(),
-          payload: binary()
+          payload: binary(),
+          rssi: neg_integer()
         }
 
   @doc """
@@ -260,11 +262,11 @@ defmodule RF69 do
   end
 
   # user handles acking
-  defp handle_ack(%RF69{auto_ack?: false} = rf69, %Packet{}) do
+  defp handle_auto_ack(%RF69{auto_ack?: false} = rf69, %Packet{}) do
     rf69
   end
 
-  defp handle_ack(
+  defp handle_auto_ack(
          %RF69{node_id: id} = rf69,
          %Packet{ack_requested?: true, target_id: id} = packet
        ) do
@@ -280,11 +282,11 @@ defmodule RF69 do
     send_packet(rf69, ack)
   end
 
-  defp handle_ack(%RF69{} = rf69, %Packet{is_ack?: true}) do
+  defp handle_auto_ack(%RF69{} = rf69, %Packet{is_ack?: true}) do
     rf69
   end
 
-  defp handle_ack(%RF69{} = rf69, _no_ack_required) do
+  defp handle_auto_ack(%RF69{} = rf69, _no_ack_required) do
     rf69
   end
 
@@ -315,19 +317,20 @@ defmodule RF69 do
     {:ok, <<payload::binary-size(length), _::binary-3>>} =
       HAL.spi_transfer(rf69.spi, <<0::size(size)>>)
 
+    rf69 = unselect(rf69)
+    rssi = read_rssi(rf69)
+
     packet = %Packet{
       target_id: target_id,
       sender_id: sender_id,
       ack_requested?: ack_requested == 1,
       is_ack?: is_ack == 1,
-      payload: payload
+      payload: payload,
+      rssi: rssi
     }
 
     send(rf69.receiver_pid, packet)
-
-    rf69
-    |> unselect()
-    |> handle_ack(packet)
+    handle_auto_ack(rf69, packet)
   end
 
   defp send_packet(rf69, %Packet{} = packet) do

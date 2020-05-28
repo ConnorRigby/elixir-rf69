@@ -19,7 +19,7 @@ Interact with RFM69HCW radio modules via spi.
 * [x] only 915 mhz is currently supported
 * [x] AES encryption
 * [ ] Usage documentation
-* [ ] RSSI value reading
+* [x] RSSI value reading
 * [x] Processing packet data outside of the library
 * [ ] Packet recv/send telemetry (because why not?)
 * [ ] Unit tests?

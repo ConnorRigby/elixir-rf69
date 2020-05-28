@@ -155,6 +155,30 @@ defmodule RF69.Util do
     end
   end
 
+  def read_rssi(rf69) do
+    rf69 =
+      rf69
+      |> write_reg(:RSSICONFIG, :RSSI_START)
+
+    # |> block_until_rssi_done()
+
+    # RSSI = -RssiValue/2 [dBm]
+    -read_reg(rf69, :RSSIVALUE) |> Bitwise.bsr(1)
+  end
+
+  # defp block_until_rssi_done(rf69) do
+  #   case read_reg_bin(rf69, :RSSICONFIG) do
+  #     # sampling still
+  #     <<_unused::6, 0::1, _start::1>> = not_done ->
+  #       IO.inspect(not_done, label: "not_done")
+  #       block_until_rssi_done(rf69)
+
+  #     <<_unused::6, 1::1, _start::1>> ->
+  #       IO.puts "rssi sampling complete"
+  #       rf69
+  #   end
+  # end
+
   def write_reg_while(rf69, {write_reg, write_value}, {read_reg, read_value}, timeout) do
     write_reg(rf69, write_reg, write_value)
     read_until(rf69, {read_reg, read_value}, timeout)

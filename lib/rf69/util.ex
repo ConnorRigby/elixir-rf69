@@ -1,6 +1,6 @@
 defmodule RF69.Util do
   @moduledoc false
-  alias Circuits.{GPIO, SPI}
+  alias RF69.HAL
 
   import RF69Registers
   use Bitwise
@@ -20,8 +20,8 @@ defmodule RF69.Util do
   def write_reg(rf69, addr, value) when is_integer(addr) and is_binary(value) do
     select(rf69)
     # IO.puts("WRITE_REG(#{inspect(addr, base: :hex)}, #{inspect(value, base: :hex)})")
-    {:ok, _} = SPI.transfer(rf69.spi, <<1::integer-1, addr::integer-7>>)
-    {:ok, <<return::integer-8>>} = SPI.transfer(rf69.spi, value)
+    {:ok, _} = HAL.spi_transfer(rf69.spi, <<1::integer-1, addr::integer-7>>)
+    {:ok, <<return::integer-8>>} = HAL.spi_transfer(rf69.spi, value)
     unselect(rf69)
     return
   end
@@ -41,8 +41,8 @@ defmodule RF69.Util do
 
   def read_reg_bin(rf69, addr) when is_integer(addr) do
     select(rf69)
-    {:ok, _reg} = SPI.transfer(rf69.spi, <<0::integer-1, addr::integer-7>>)
-    {:ok, register} = SPI.transfer(rf69.spi, <<0::integer-8>>)
+    {:ok, _reg} = HAL.spi_transfer(rf69.spi, <<0::integer-1, addr::integer-7>>)
+    {:ok, register} = HAL.spi_transfer(rf69.spi, <<0::integer-8>>)
     unselect(rf69)
     register
   end
@@ -165,6 +165,7 @@ defmodule RF69.Util do
         value = read_reg(rf69, read_reg)
 
         if value != read_value do
+          IO.puts("#{reg(read_reg)}=#{inspect(value)}")
           read_until(rf69, {read_reg, read_value}, timer)
         else
           Process.cancel_timer(timer)
@@ -174,16 +175,16 @@ defmodule RF69.Util do
   end
 
   def select(rf69) do
-    GPIO.write(rf69.ss, 0)
+    HAL.gpio_write(rf69.ss, 0)
   end
 
   def unselect(rf69) do
-    GPIO.write(rf69.ss, 1)
+    HAL.gpio_write(rf69.ss, 1)
   end
 
   def reset(rf69) do
-    GPIO.write(rf69.reset, 1)
-    GPIO.write(rf69.reset, 0)
+    HAL.gpio_write(rf69.reset, 1)
+    HAL.gpio_write(rf69.reset, 0)
   end
 
   def write_config(rf69) do
@@ -277,8 +278,8 @@ defmodule RF69.Util do
 
   def read_all_reg_values(rf69, addr, buffer) when addr <= 0x4F do
     select(rf69)
-    {:ok, _} = SPI.transfer(rf69.spi, <<addr &&& 0x7F>>)
-    {:ok, <<value::integer-8>>} = SPI.transfer(rf69.spi, <<0>>)
+    {:ok, _} = HAL.spi_transfer(rf69.spi, <<addr &&& 0x7F>>)
+    {:ok, <<value::integer-8>>} = HAL.spi_transfer(rf69.spi, <<0>>)
     unselect(rf69)
     reg = :io_lib.format("~.16.0B - ~.16.0B - ~.2.0B", [addr, value, value])
     read_all_reg_values(rf69, addr + 1, [reg | buffer])

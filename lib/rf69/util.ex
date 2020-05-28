@@ -1,10 +1,27 @@
 defmodule RF69.Util do
-  @moduledoc false
+  @moduledoc """
+  Helper functions for doing low level hardware access.
+  Functions in this module should return an rf69 struct
+  unless oterwise noted.
+  """
+
   alias RF69.{HAL, Frequency}
 
   import RF69Registers
   use Bitwise
 
+  @doc """
+  Write a register.
+
+  * `addr` can be one of:
+    * an atom found in RF69Registers
+    * an 8 bit wide binary
+    * an 8 bit integer (0..255)
+  * `value` can be one of:
+    * an atom found in RF69Registers
+    * an 8 bit integer (0..255)
+    * a binary
+  """
   def write_reg(rf69, addr, value) when is_atom(addr) do
     write_reg(rf69, reg(addr), value)
   end
@@ -24,6 +41,15 @@ defmodule RF69.Util do
     unselect(rf69)
   end
 
+  @doc """
+  Read a register.
+
+  * `addr` can be one of:
+    * an atom found in RF69Registers
+    * an 8 bit wide binary
+    * an 8 bit integer (0..255)
+  Returns an 8 bit integer
+  """
   def read_reg(rf69, addr) when is_atom(addr) do
     read_reg(rf69, reg(addr))
   end
@@ -33,6 +59,15 @@ defmodule RF69.Util do
     register
   end
 
+  @doc """
+  Read a register returning the binary value.
+
+  * `addr` can be one of:
+    * an atom found in RF69Registers
+    * an 8 bit wide binary
+    * an 8 bit integer (0..255)
+  Returns an 8 bit binary
+  """
   def read_reg_bin(rf69, addr) when is_atom(addr) do
     read_reg_bin(rf69, reg(addr))
   end
@@ -45,6 +80,7 @@ defmodule RF69.Util do
     register
   end
 
+  @doc "Sets the aes_on bit in the PACKETCONFIG2 register"
   def enable_encryption(%{} = rf69) do
     <<inter_packet_rx_delay::4, unused::1, restart_rx::1, auto_rx_restart_on::1, _aes_on::1>> =
       read_reg_bin(rf69, :PACKETCONFIG2)
@@ -56,6 +92,7 @@ defmodule RF69.Util do
     )
   end
 
+  @doc "Unsets the aes_on bit in the PACKETCONFIG2 register"
   def disable_encryption(%{} = rf69) do
     <<inter_packet_rx_delay::4, unused::1, restart_rx::1, auto_rx_restart_on::1, _aes_on::1>> =
       read_reg_bin(rf69, :PACKETCONFIG2)
@@ -67,6 +104,15 @@ defmodule RF69.Util do
     )
   end
 
+  @doc """
+  Sets `current_mode` 3 bits on the OPMODE register.
+  * `mode` can be one of:
+    * :SLEEP
+    * :STANDBY
+    * :FS
+    * :RX
+    * :TX
+  """
   def set_mode(%{mode: mode} = rf69, mode), do: rf69
 
   def set_mode(rf69, mode) do
@@ -103,6 +149,7 @@ defmodule RF69.Util do
     end
   end
 
+  @doc "sets `TESTPA1 and TESTPA2 registers to magic values"
   def set_high_power_regs(rf69, false) do
     rf69
     |> write_reg(reg(:TESTPA1), 0x55)
@@ -117,12 +164,39 @@ defmodule RF69.Util do
 
   # writeReg(REG_OCP, _isRFM69HW ? RF_OCP_OFF : RF_OCP_ON);
   # writeReg(REG_PALEVEL, (readReg(REG_PALEVEL) & 0x1F) | RF_PALEVEL_PA1_ON | RF_PALEVEL_PA2_ON); // enable P1 & P2 amplifier stages
+  @doc "Enables highpower in PALEVEL register. This is not the same as `set_high_power_regs`"
   def set_high_power(rf69) do
     rf69 = if rf69.isRFM69HW, do: write_reg(rf69, :OCP, :OCP_OFF), else: rf69
     <<pa0::1, _::2, power::5>> = read_reg_bin(rf69, :PALEVEL)
     write_reg(rf69, :PALEVEL, <<pa0::1, 1::1, 1::1, power::5>>)
   end
 
+  @doc "Reads the RSSIVALUE register"
+  def read_rssi(rf69) do
+    rf69 =
+      rf69
+      |> write_reg(:RSSICONFIG, :RSSI_START)
+
+    # |> block_until_rssi_done()
+
+    # RSSI = -RssiValue/2 [dBm]
+    -read_reg(rf69, :RSSIVALUE) |> Bitwise.bsr(1)
+  end
+
+  # defp block_until_rssi_done(rf69) do
+  #   case read_reg_bin(rf69, :RSSICONFIG) do
+  #     # sampling still
+  #     <<_unused::6, 0::1, _start::1>> = not_done ->
+  #       IO.inspect(not_done, label: "not_done")
+  #       block_until_rssi_done(rf69)
+
+  #     <<_unused::6, 1::1, _start::1>> ->
+  #       IO.puts "rssi sampling complete"
+  #       rf69
+  #   end
+  # end
+
+  @doc "Blocks until packet_sent on IRQFLAGS2 is set. Timeout should be a low value"
   def block_until_packet_sent(rf69, timeout) when is_integer(timeout) do
     block_until_packet_sent(
       rf69,
@@ -155,35 +229,13 @@ defmodule RF69.Util do
     end
   end
 
-  def read_rssi(rf69) do
-    rf69 =
-      rf69
-      |> write_reg(:RSSICONFIG, :RSSI_START)
-
-    # |> block_until_rssi_done()
-
-    # RSSI = -RssiValue/2 [dBm]
-    -read_reg(rf69, :RSSIVALUE) |> Bitwise.bsr(1)
-  end
-
-  # defp block_until_rssi_done(rf69) do
-  #   case read_reg_bin(rf69, :RSSICONFIG) do
-  #     # sampling still
-  #     <<_unused::6, 0::1, _start::1>> = not_done ->
-  #       IO.inspect(not_done, label: "not_done")
-  #       block_until_rssi_done(rf69)
-
-  #     <<_unused::6, 1::1, _start::1>> ->
-  #       IO.puts "rssi sampling complete"
-  #       rf69
-  #   end
-  # end
-
+  @doc false
   def write_reg_while(rf69, {write_reg, write_value}, {read_reg, read_value}, timeout) do
     write_reg(rf69, write_reg, write_value)
     read_until(rf69, {read_reg, read_value}, timeout)
   end
 
+  @doc false
   def read_until(rf69, {read_reg, read_value}, timeout) when is_integer(timeout) do
     timer = Process.send_after(self(), :timeout, timeout)
     read_until(rf69, {read_reg, read_value}, timer)
@@ -207,16 +259,19 @@ defmodule RF69.Util do
     end
   end
 
+  @doc "Selects the SS pin by setting it low"
   def select(rf69) do
     HAL.gpio_write(rf69.ss, 0)
     rf69
   end
 
+  @doc "Selects the SS pin by setting it high"
   def unselect(rf69) do
     HAL.gpio_write(rf69.ss, 1)
     rf69
   end
 
+  @doc "Toggles the reset pin"
   def reset(rf69) do
     HAL.gpio_write(rf69.reset, 1)
     HAL.gpio_write(rf69.reset, 0)
@@ -224,6 +279,7 @@ defmodule RF69.Util do
   end
 
   # TODO factor out the bitwise nonsense here.
+  @doc "Writes the default config. This is the same as the RFM69 Low Power Labs library"
   def write_config(rf69) do
     rf69
     |> write_reg(
@@ -269,6 +325,7 @@ defmodule RF69.Util do
     |> write_reg(0x255, 0x0)
   end
 
+  @doc "Helper to print out all register values"
   def read_all_reg_values(rf69) do
     read_all_reg_values(rf69, 1, [])
   end

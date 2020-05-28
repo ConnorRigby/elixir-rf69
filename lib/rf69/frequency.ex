@@ -1,4 +1,6 @@
 defmodule RF69.Frequency do
+  @moduledoc false
+
   import RF69.Util, only: [write_reg: 3]
 
   @type t() ::

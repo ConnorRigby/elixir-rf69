@@ -1,6 +1,14 @@
 defmodule RF69Registers do
   @moduledoc false
 
+  # helper for converting register and value names
+  # into their respective values
+  # should be considered private. 
+  # File was automatically generated
+  # using some fancy grep/sed/awk magic
+  # based on 
+  # https://github.com/LowPowerLab/RFM69/blob/f28c65f0dee6f28ffb14bdc856a08648d4298bdc/RFM69registers.h
+
   def reg(:FIFO), do: 0x00
   def reg(:OPMODE), do: 0x01
   def reg(:DATAMODUL), do: 0x02

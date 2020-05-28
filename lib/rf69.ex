@@ -1,6 +1,23 @@
 defmodule RF69 do
   @moduledoc """
   Server for using a RF69HCW radio
+
+  # Examples
+      iex(1)> {:ok, pid} = RF69.start_link [encrypt_key: "sampleEncryptKey"]
+      {:ok, #PID<0.1185.0>}
+      iex(2)> RF69.send(pid, 3, true, "hello world")
+      :ok     
+      iex(3)> flush
+      %RF69.Packet{
+        ack_requested?: false,
+        is_ack?: true,
+        payload: "",
+        rssi: -42,
+        sender_id: 3,
+        target_id: 1
+      }
+      :ok     
+      iex(4)>
   """
 
   use GenServer
@@ -31,6 +48,26 @@ defmodule RF69 do
             receiver_pid: nil
 
   defmodule Packet do
+    @moduledoc """
+    Packet structure that can be sent/received.
+    Fields on this structure are considered public.
+
+    * `target_id` - 10 bit node id. (0..1023)
+    * `sender_id` - 10 bit node id. (0..1023)
+    * `ack_requested?` - boolean. See the Acking section of the docs for more info
+    * `is_ack?` - boolean. See the Acking section of the docs for more info
+    * `payload` - binary up to 66 bytes.
+    * `rssi` - dbm value of the RSSI when this packet was received
+    """
+
+    @type t() :: %Packet{
+            target_id: RF69.node_id(),
+            sender_id: RF69.node_id(),
+            ack_requested?: boolean(),
+            is_ack?: boolean(),
+            payload: binary(),
+            rssi: neg_integer()
+          }
     defstruct target_id: nil,
               sender_id: nil,
               ack_requested?: nil,
@@ -63,14 +100,7 @@ defmodule RF69 do
           receiver_pid: pid()
         }
 
-  @type packet :: %Packet{
-          target_id: RF69.node_id(),
-          sender_id: RF69.node_id(),
-          ack_requested?: boolean(),
-          is_ack?: boolean(),
-          payload: binary(),
-          rssi: neg_integer()
-        }
+  @type packet :: Packet.t()
 
   @doc """
   Start a connection to a radio. `args` is a map or keyword list of

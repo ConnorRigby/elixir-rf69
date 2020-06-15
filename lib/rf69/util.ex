@@ -9,6 +9,7 @@ defmodule RF69.Util do
 
   import RF69Registers
   use Bitwise
+  require Logger
 
   @doc """
   Write a register.
@@ -26,18 +27,18 @@ defmodule RF69.Util do
     write_reg(rf69, reg(addr), value)
   end
 
-  def write_reg(rf69, addr, value) when value <= 255 do
-    write_reg(rf69, addr, <<value::8>>)
+  def write_reg(rf69, addr, <<value::8>>) do
+    write_reg(rf69, addr, value)
   end
 
   def write_reg(rf69, addr, value) when is_atom(value) do
     write_reg(rf69, addr, rf(value))
   end
 
-  def write_reg(rf69, addr, value) when is_integer(addr) and is_binary(value) do
+  def write_reg(rf69, addr, value) when is_integer(addr) and value <= 255 do
     rf69 = select(rf69)
-    {:ok, _} = HAL.spi_transfer(rf69.spi, <<1::integer-1, addr::integer-7>>)
-    {:ok, _} = HAL.spi_transfer(rf69.spi, value)
+    {:ok, _} = HAL.spi_transfer(rf69.spi, <<1::integer-1, addr::integer-7, value::8>>)
+    # {:ok, _} = HAL.spi_transfer(rf69.spi, value)
     unselect(rf69)
   end
 
@@ -74,8 +75,11 @@ defmodule RF69.Util do
 
   def read_reg_bin(rf69, addr) when is_integer(addr) do
     rf69 = select(rf69)
-    {:ok, _reg} = HAL.spi_transfer(rf69.spi, <<0::integer-1, addr::integer-7>>)
-    {:ok, register} = HAL.spi_transfer(rf69.spi, <<0::integer-8>>)
+
+    {:ok, <<_::8, register::binary>>} =
+      HAL.spi_transfer(rf69.spi, <<0::integer-1, addr::integer-7, 0::8>>)
+
+    # {:ok, register} = HAL.spi_transfer(rf69.spi, <<0::integer-8>>)
     unselect(rf69)
     register
   end
@@ -260,18 +264,31 @@ defmodule RF69.Util do
   end
 
   @doc "Selects the SS pin by setting it low"
+  def select(%{ss: nil} = rf69) do
+    rf69
+  end
+
   def select(rf69) do
     HAL.gpio_write(rf69.ss, 0)
     rf69
   end
 
   @doc "Selects the SS pin by setting it high"
+  def unselect(%{ss: nil} = rf69) do
+    rf69
+  end
+
   def unselect(rf69) do
     HAL.gpio_write(rf69.ss, 1)
     rf69
   end
 
   @doc "Toggles the reset pin"
+  def reset(%{reset: nil} = rf69) do
+    Logger.info("Skipping reset")
+    rf69
+  end
+
   def reset(rf69) do
     HAL.gpio_write(rf69.reset, 1)
     HAL.gpio_write(rf69.reset, 0)

@@ -6,7 +6,7 @@ defmodule RF69 do
       iex(1)> {:ok, pid} = RF69.start_link [encrypt_key: "sampleEncryptKey"]
       {:ok, #PID<0.1185.0>}
       iex(2)> RF69.send(pid, 3, true, "hello world")
-      :ok     
+      :ok
       iex(3)> flush
       %RF69.Packet{
         ack_requested?: false,
@@ -16,7 +16,7 @@ defmodule RF69 do
         sender_id: 3,
         target_id: 1
       }
-      :ok     
+      :ok
       iex(4)>
   """
 
@@ -36,9 +36,9 @@ defmodule RF69 do
             node_id: 1,
             mode: nil,
             isRFM69HW: true,
-            reset_pin: 16,
-            ss_pin: 25,
-            irq_pin: 13,
+            reset_pin: nil,
+            ss_pin: nil,
+            irq_pin: nil,
             rx_pin: nil,
             tx_pin: nil,
             spi_bus_name: "spidev0.0",
@@ -186,34 +186,55 @@ defmodule RF69 do
 
   @impl GenServer
   def handle_info(:init, rf69) do
-    with {:ok, reset} <- HAL.gpio_open(rf69.reset_pin, :output, initial_value: 0),
-         {:ok, ss} <- HAL.gpio_open(rf69.ss_pin, :output, initial_value: 1),
-         {:ok, irq} <- HAL.gpio_open(rf69.irq_pin, :input),
+    Logger.info("init #{inspect(rf69)}")
+
+    with {:ok, irq} <- HAL.gpio_open(rf69.irq_pin, :input),
          {:ok, spi} <- HAL.spi_open(rf69.spi_bus_name, mode: 0, speed_hz: 8_000_000) do
       send(self(), :reset)
-      {:noreply, %{rf69 | reset: reset, ss: ss, irq: irq, spi: spi}}
+      {:noreply, %{rf69 | irq: irq, spi: spi}}
     else
       error ->
         {:stop, error, rf69}
     end
   end
 
+  # def handle_info(:init, rf69) do
+  #   with {:ok, reset} <- HAL.gpio_open(rf69.reset_pin, :output, initial_value: 0),
+  #        {:ok, ss} <- HAL.gpio_open(rf69.ss_pin, :output, initial_value: 1),
+  #        {:ok, irq} <- HAL.gpio_open(rf69.irq_pin, :input),
+  #        {:ok, spi} <- HAL.spi_open(rf69.spi_bus_name, mode: 0, speed_hz: 8_000_000) do
+  #     send(self(), :reset)
+  #     {:noreply, %{rf69 | reset: reset, ss: ss, irq: irq, spi: spi}}
+  #   else
+  #     error ->
+  #       {:stop, error, rf69}
+  #   end
+  # end
+
   def handle_info(:reset, rf69) do
     reset(rf69)
     # 0xAA = write_reg_while(rf69, {:SYNCVALUE1, 0xAA}, {:SYNCVALUE1, 0xAA}, 50)
-    0x55 = write_reg_while(rf69, {:SYNCVALUE1, 0x55}, {:SYNCVALUE1, 0x55}, 50)
-    write_config(rf69)
-    rf69 = set_high_power(rf69)
+    case write_reg_while(rf69, {:SYNCVALUE1, 0x55}, {:SYNCVALUE1, 0x55}, 150) do
+      0x55 ->
+        Logger.info("Synced")
+        write_config(rf69)
+        rf69 = set_high_power(rf69)
 
-    :ok = HAL.gpio_set_interrupts(rf69.irq, :rising)
+        :ok = HAL.gpio_set_interrupts(rf69.irq, :rising)
 
-    rf69 = set_mode(rf69, :STANDBY)
+        rf69 = set_mode(rf69, :STANDBY)
 
-    rf69 = encrypt(rf69)
+        rf69 = encrypt(rf69)
 
-    # read_all_reg_values(rf69)
-    send(self(), :receive_begin)
-    {:noreply, rf69}
+        # read_all_reg_values(rf69)
+        send(self(), :receive_begin)
+        {:noreply, rf69}
+
+      :timeout ->
+        Logger.error("Not inited..")
+        Process.send_after(self(), :reset, 150)
+        {:noreply, rf69}
+    end
   end
 
   def handle_info(:receive_begin, rf69) do

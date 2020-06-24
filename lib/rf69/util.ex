@@ -27,19 +27,17 @@ defmodule RF69.Util do
     write_reg(rf69, reg(addr), value)
   end
 
-  def write_reg(rf69, addr, <<value::8>>) do
-    write_reg(rf69, addr, value)
-  end
-
   def write_reg(rf69, addr, value) when is_atom(value) do
     write_reg(rf69, addr, rf(value))
   end
 
-  def write_reg(rf69, addr, value) when is_integer(addr) and value <= 255 do
-    rf69 = select(rf69)
-    {:ok, _} = HAL.spi_transfer(rf69.spi, <<1::integer-1, addr::integer-7, value::8>>)
-    # {:ok, _} = HAL.spi_transfer(rf69.spi, value)
-    unselect(rf69)
+  def write_reg(rf69, addr, value) when value <= 255 do
+    write_reg(rf69, addr, <<value::8>>)
+  end
+
+  def write_reg(rf69, addr, value) when is_binary(value) do
+    {:ok, _} = HAL.spi_transfer(rf69.spi, <<1::integer-1, addr::integer-7, value::binary>>)
+    rf69
   end
 
   @doc """
@@ -69,18 +67,21 @@ defmodule RF69.Util do
     * an 8 bit integer (0..255)
   Returns an 8 bit binary
   """
-  def read_reg_bin(rf69, addr) when is_atom(addr) do
+  def read_reg_bin(%{} = rf69, addr) when is_atom(addr) do
     read_reg_bin(rf69, reg(addr))
   end
 
-  def read_reg_bin(rf69, addr) when is_integer(addr) do
-    rf69 = select(rf69)
-
+  def read_reg_bin(%{} = rf69, addr) when is_integer(addr) do
     {:ok, <<_::8, register::binary>>} =
       HAL.spi_transfer(rf69.spi, <<0::integer-1, addr::integer-7, 0::8>>)
 
-    # {:ok, register} = HAL.spi_transfer(rf69.spi, <<0::integer-8>>)
-    unselect(rf69)
+    register
+  end
+
+  def read_encrypt_key(rf69) do
+    {:ok, <<_::8, register::binary>>} =
+      HAL.spi_transfer(rf69.spi, <<0::integer-1, 0x3E::integer-7, 0::128>>)
+
     register
   end
 
@@ -119,7 +120,7 @@ defmodule RF69.Util do
   """
   def set_mode(%{mode: mode} = rf69, mode), do: rf69
 
-  def set_mode(rf69, mode) do
+  def set_mode(%{} = rf69, mode) do
     <<
       sequencer_off::1,
       listen_on::1,
@@ -233,6 +234,40 @@ defmodule RF69.Util do
     end
   end
 
+  @doc "Blocks until packet_sent on IRQFLAGS2 is set. Timeout should be a low value"
+  def block_until_packet_recv(rf69, timeout) when is_integer(timeout) do
+    block_until_packet_recv(
+      rf69,
+      Process.send_after(self(), :block_until_packet_recv_timeout, timeout)
+    )
+  end
+
+  def block_until_packet_recv(rf69, timer) do
+    receive do
+      :block_until_packet_recv_timeout -> :timeout
+    after
+      0 ->
+        <<
+          _fifo_full::1,
+          _fifo_not_empty::1,
+          _fifo_level::1,
+          _fifo_overrun::1,
+          _packet_sent::1,
+          payload_ready::1,
+          crc_ok::1,
+          _unused::1
+        >> = read_reg_bin(rf69, :IRQFLAGS2)
+
+        if payload_ready == 1 do
+          Process.cancel_timer(timer)
+          IO.inspect(crc_ok, label: "CRC")
+          rf69
+        else
+          block_until_packet_recv(rf69, timer)
+        end
+    end
+  end
+
   @doc false
   def write_reg_while(rf69, {write_reg, write_value}, {read_reg, read_value}, timeout) do
     write_reg(rf69, write_reg, write_value)
@@ -261,38 +296,6 @@ defmodule RF69.Util do
           value
         end
     end
-  end
-
-  @doc "Selects the SS pin by setting it low"
-  def select(%{ss: nil} = rf69) do
-    rf69
-  end
-
-  def select(rf69) do
-    HAL.gpio_write(rf69.ss, 0)
-    rf69
-  end
-
-  @doc "Selects the SS pin by setting it high"
-  def unselect(%{ss: nil} = rf69) do
-    rf69
-  end
-
-  def unselect(rf69) do
-    HAL.gpio_write(rf69.ss, 1)
-    rf69
-  end
-
-  @doc "Toggles the reset pin"
-  def reset(%{reset: nil} = rf69) do
-    Logger.info("Skipping reset")
-    rf69
-  end
-
-  def reset(rf69) do
-    HAL.gpio_write(rf69.reset, 1)
-    HAL.gpio_write(rf69.reset, 0)
-    rf69
   end
 
   # TODO factor out the bitwise nonsense here.
@@ -342,20 +345,18 @@ defmodule RF69.Util do
     |> write_reg(0x255, 0x0)
   end
 
-  @doc "Helper to print out all register values"
-  def read_all_reg_values(rf69) do
-    read_all_reg_values(rf69, 1, [])
-  end
+  # @doc "Helper to print out all register values"
+  # def read_all_reg_values(rf69) do
+  #   read_all_reg_values(rf69, 1, [])
+  # end
 
-  def read_all_reg_values(rf69, addr, buffer) when addr <= 0x4F do
-    select(rf69)
-    {:ok, _} = HAL.spi_transfer(rf69.spi, <<addr &&& 0x7F>>)
-    {:ok, <<value::integer-8>>} = HAL.spi_transfer(rf69.spi, <<0>>)
-    unselect(rf69)
-    reg = :io_lib.format("~.16.0B - ~.16.0B - ~.2.0B", [addr, value, value])
-    read_all_reg_values(rf69, addr + 1, [reg | buffer])
-  end
+  # def read_all_reg_values(rf69, addr, buffer) when addr <= 0x4F do
+  #   {:ok, _} = HAL.spi_transfer(rf69.spi, <<addr &&& 0x7F>>)
+  #   {:ok, <<value::integer-8>>} = HAL.spi_transfer(rf69.spi, <<0>>)
+  #   reg = :io_lib.format("~.16.0B - ~.16.0B - ~.2.0B", [addr, value, value])
+  #   read_all_reg_values(rf69, addr + 1, [reg | buffer])
+  # end
 
-  def read_all_reg_values(_rf69, _, buffer),
-    do: Enum.reverse(buffer) |> Enum.join("\n") |> IO.puts()
+  # def read_all_reg_values(_rf69, _, buffer),
+  #   do: Enum.reverse(buffer) |> Enum.join("\n") |> IO.puts()
 end

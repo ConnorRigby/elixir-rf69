@@ -236,7 +236,7 @@ defmodule RF69 do
       write_reg(
         rf69,
         :PACKETCONFIG2,
-        <<interpacket_rx_delay::4, unused::1, 1::1, auto_rx_restart::1, aes_on::1>>
+        <<interpacket_rx_delay::4, unused::1, 1::1, 1::1, aes_on::1>>
       )
     end
 
@@ -279,16 +279,20 @@ defmodule RF69 do
       payload_ready::1,
       _crc_ok::1,
       _unused::1
-    >> = read_reg_bin(rf69, :IRQFLAGS2)
+    >> = data = read_reg_bin(rf69, :IRQFLAGS2)
+    Logger.info(%{int: inspect(data, base: :hex)})
 
     if payload_ready == 1 do
       rf69 =
         rf69
         |> recv_packet()
         |> set_mode(:RX)
+      rssi = read_rssi(rf69)
 
       {:noreply, rf69}
     else
+      rssi = read_rssi(rf69)
+
       {:noreply, rf69}
     end
   end
@@ -323,21 +327,27 @@ defmodule RF69 do
   end
 
   defp recv_packet(rf69) do
-    %RF69{} = rf69 = block_until_packet_recv(rf69, 150)
-
     rf69 = set_mode(rf69, :STANDBY)
 
-    # select fifo register
-    # {:ok, _} = HAL.spi_transfer(rf69.spi, <<0::8>>)
+    # %RF69{} = rf69 = block_until_packet_recv(rf69, 150)
+
+    IO.puts "receiving packet"
+
+    # select fifo register?? what does this mean?
+    # {:ok, fifo} = HAL.spi_transfer(rf69.spi, <<0::32>>)
+    # IO.inspect(fifo, base: :hex, label: "fifo")
 
     # # read header
-    # {:ok, <<length::8, target_id::8, sender_id::8, ctl::bits-8>>} =
-    #   HAL.spi_transfer(rf69.spi, <<0::32>>)
+    # # {:ok, <<length::8, target_id::8, sender_id::8, ctl::bits-8>>} =
+    # #   HAL.spi_transfer(rf69.spi, <<0::32>>)
 
-    {:ok, <<_::8, length::8, target_id::8, sender_id::8, ctl::bits-8, payload::binary>>} =
-      HAL.spi_transfer(rf69.spi, :binary.copy(<<0>>, 67))
+    # {:ok, <<length::8>>} = HAL.spi_transfer(rf69.spi, <<0::8>>)
+    # {:ok, <<target_id::8>>} = HAL.spi_transfer(rf69.spi, <<0::8>>)
+    # {:ok, <<sender_id::8>>} = HAL.spi_transfer(rf69.spi, <<0::8>>)
+    # {:ok, <<ctl::bits-8>>} = HAL.spi_transfer(rf69.spi, <<0::8>>)
 
-    IO.inspect(length, label: "packet length")
+    {:ok, <<fifo::8, length::8, target_id::8, sender_id::8, ctl::bits-8>>} =
+      HAL.spi_transfer(rf69.spi, <<0::40>>)
 
     # ctl contains the most signifigant two bits of target and sender
     <<is_ack::1, ack_requested::1, _rssi_req::1, _::1, target_id_msb::2, sender_id_msb::2>> = ctl
@@ -345,21 +355,19 @@ defmodule RF69 do
     <<target_id::10, sender_id::10>> =
       <<target_id_msb::2, target_id::8, sender_id_msb::2, sender_id::8>>
 
-    # payload_size = length * 8
+      IO.inspect(fifo, base: :hex, label: "fifo")
+      IO.inspect(length, label: "length")
+      IO.inspect(target_id, label: "sender")
+      IO.inspect(sender_id, label: "target")
+      IO.inspect(ctl, label: "ctl")
 
-    # RF69 library tacks on three bytes. not really sure why..
-    # length = length - 3
+    length = length - 3
 
-    # <<payload::binary-size(length), _::binary-3, _::binary>> = debug = payload
+    {:ok, <<_, payload::binary>>} = HAL.spi_transfer(rf69.spi, <<0,0::length*8>>)
+    IO.inspect(payload, label: "packet_payload")
+    # <<payload::binary-size(length), _::binary>> = debug = payload
 
-    <<payload::binary-size(length), _::binary>> = debug = payload
 
-    # {:ok, <<payload::binary-size(length), _::binary-3>> = debug} =
-    #   HAL.spi_transfer(rf69.spi, <<0::size(payload_size)>>)
-
-    IO.inspect(debug, label: "hey")
-
-    rssi = read_rssi(rf69)
 
     packet = %Packet{
       target_id: target_id,
@@ -367,8 +375,8 @@ defmodule RF69 do
       ack_requested?: ack_requested == 1,
       is_ack?: is_ack == 1,
       payload: payload,
-      rssi: rssi,
-      rssi_percent: RSSI.dbm_to_percent(rssi)
+      # rssi: rssi,
+      # rssi_percent: RSSI.dbm_to_percent(rssi)
     }
 
     send(rf69.receiver_pid, packet)
@@ -376,14 +384,23 @@ defmodule RF69 do
   end
 
   def send_packet(%RF69{} = rf69, %Packet{} = packet) do
+    <<interpacket_rx_delay::4, unused::1, _restart_rx::1, auto_rx_restart::1, aes_on::1>> =
+      read_reg_bin(rf69, :PACKETCONFIG2)
+
+    write_reg(
+      rf69,
+      :PACKETCONFIG2,
+      <<interpacket_rx_delay::4, unused::1, 1::1, 1::1, aes_on::1>>
+    )
+
     <<target_msb::2, target_lsb::8, sender_msb::2, sender_lsb::8>> =
       <<packet.target_id::10, packet.sender_id::10>>
 
     is_ack = if packet.is_ack?, do: 1, else: 0
     ack_requested = if packet.ack_requested?, do: 1, else: 0
 
-    # length = byte_size(packet.payload) + 3
-    length = byte_size(packet.payload)
+    length = byte_size(packet.payload) + 3
+    # length = byte_size(packet.payload)
 
     # reverse sender and target for ack
     send_packet = <<
@@ -399,6 +416,7 @@ defmodule RF69 do
     >>
 
     %RF69{} = rf69 = set_mode(rf69, :STANDBY)
+    %RF69{} = rf69 = block_until_modeset(rf69, 150)
 
     # select FIFO register
     {:ok, _} = HAL.spi_transfer(rf69.spi, <<0b10000000, send_packet::binary>>)
@@ -408,13 +426,6 @@ defmodule RF69 do
     rf69
     |> set_mode(:TX)
     |> block_until_packet_sent(50)
-    |> set_mode(:RX)
-
-    # rf69
-    # |> set_mode(:STANDBY)
-    # |> write_reg(:FIFO, send_packet)
-    # |> set_mode(:TX)
-    # |> block_until_packet_sent(50)
-    # |> set_mode(:RX)
+    |> set_mode(:STANDBY)
   end
 end

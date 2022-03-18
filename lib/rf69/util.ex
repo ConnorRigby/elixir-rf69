@@ -254,19 +254,49 @@ defmodule RF69.Util do
           _fifo_overrun::1,
           _packet_sent::1,
           payload_ready::1,
-          crc_ok::1,
+          _crc_ok::1,
           _unused::1
         >> = read_reg_bin(rf69, :IRQFLAGS2)
 
         if payload_ready == 1 do
           Process.cancel_timer(timer)
-          IO.inspect(crc_ok, label: "CRC")
           rf69
         else
           block_until_packet_recv(rf69, timer)
         end
     end
   end
+
+  def block_until_modeset(rf69, timeout) when is_integer(timeout) do
+    block_until_modeset(
+      rf69,
+      Process.send_after(self(), :block_until_modeset_timeout, timeout)
+    )
+  end
+  def  block_until_modeset(rf69, timer) do
+      receive do
+        :block_until_modeset_timeout -> :timeout
+      after
+        0 ->
+          <<
+          mode_ready::1,
+          _rx_ready::1,
+          _tx_ready::1,
+          _pll_lock::1,
+          _rssi::1,
+          _timeout::1,
+          _auto_mode::1,
+          _sync_address_match::1
+          >> = read_reg_bin(rf69, :IRQFLAGS1)
+
+          if mode_ready == 1 do
+            Process.cancel_timer(timer)
+            rf69
+          else
+            block_until_packet_sent(rf69, timer)
+          end
+      end
+    end
 
   @doc false
   def write_reg_while(rf69, {write_reg, write_value}, {read_reg, read_value}, timeout) do

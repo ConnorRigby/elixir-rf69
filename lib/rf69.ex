@@ -146,6 +146,8 @@ defmodule RF69 do
     }
 
     %RF69{} = rf69 = send_packet(rf69, packet)
+    %RF69{} = rf69 = set_mode(rf69, :RX)
+
     {:reply, :ok, rf69}
   end
 
@@ -177,19 +179,6 @@ defmodule RF69 do
         {:stop, error, rf69}
     end
   end
-
-  # def handle_info(:init, rf69) do
-  #   with {:ok, reset} <- HAL.gpio_open(rf69.reset_pin, :output, initial_value: 0),
-  #        {:ok, ss} <- HAL.gpio_open(rf69.ss_pin, :output, initial_value: 1),
-  #        {:ok, irq} <- HAL.gpio_open(rf69.irq_pin, :input),
-  #        {:ok, spi} <- HAL.spi_open(rf69.spi_bus_name, mode: 0, speed_hz: 8_000_000) do
-  #     send(self(), :reset)
-  #     {:noreply, %{rf69 | reset: reset, ss: ss, irq: irq, spi: spi}}
-  #   else
-  #     error ->
-  #       {:stop, error, rf69}
-  #   end
-  # end
 
   def handle_info(:reset, rf69) do
     case write_reg_while(rf69, {:SYNCVALUE1, 0x55}, {:SYNCVALUE1, 0x55}, 150) do
@@ -228,9 +217,7 @@ defmodule RF69 do
     >> = read_reg_bin(rf69, :IRQFLAGS2)
 
     if payload_ready == 1 do
-      IO.puts("setting restart_rx bit")
-
-      <<interpacket_rx_delay::4, unused::1, _restart_rx::1, auto_rx_restart::1, aes_on::1>> =
+      <<interpacket_rx_delay::4, unused::1, _restart_rx::1, _auto_rx_restart::1, aes_on::1>> =
         read_reg_bin(rf69, :PACKETCONFIG2)
 
       write_reg(
@@ -279,20 +266,16 @@ defmodule RF69 do
       payload_ready::1,
       _crc_ok::1,
       _unused::1
-    >> = data = read_reg_bin(rf69, :IRQFLAGS2)
-    Logger.info(%{int: inspect(data, base: :hex)})
+    >> = read_reg_bin(rf69, :IRQFLAGS2)
 
     if payload_ready == 1 do
       rf69 =
         rf69
         |> recv_packet()
         |> set_mode(:RX)
-      rssi = read_rssi(rf69)
 
       {:noreply, rf69}
     else
-      rssi = read_rssi(rf69)
-
       {:noreply, rf69}
     end
   end
@@ -329,45 +312,22 @@ defmodule RF69 do
   defp recv_packet(rf69) do
     rf69 = set_mode(rf69, :STANDBY)
 
-    # %RF69{} = rf69 = block_until_packet_recv(rf69, 150)
-
-    IO.puts "receiving packet"
-
-    # select fifo register?? what does this mean?
-    # {:ok, fifo} = HAL.spi_transfer(rf69.spi, <<0::32>>)
-    # IO.inspect(fifo, base: :hex, label: "fifo")
-
-    # # read header
-    # # {:ok, <<length::8, target_id::8, sender_id::8, ctl::bits-8>>} =
-    # #   HAL.spi_transfer(rf69.spi, <<0::32>>)
-
-    # {:ok, <<length::8>>} = HAL.spi_transfer(rf69.spi, <<0::8>>)
-    # {:ok, <<target_id::8>>} = HAL.spi_transfer(rf69.spi, <<0::8>>)
-    # {:ok, <<sender_id::8>>} = HAL.spi_transfer(rf69.spi, <<0::8>>)
-    # {:ok, <<ctl::bits-8>>} = HAL.spi_transfer(rf69.spi, <<0::8>>)
-
-    {:ok, <<fifo::8, length::8, target_id::8, sender_id::8, ctl::bits-8>>} =
+    # select fifo, payload length, lsb of sender and target
+    {:ok, <<_fifo::8, length::8, target_id::8, sender_id::8, ctl::bits-8>>} =
       HAL.spi_transfer(rf69.spi, <<0::40>>)
 
     # ctl contains the most signifigant two bits of target and sender
     <<is_ack::1, ack_requested::1, _rssi_req::1, _::1, target_id_msb::2, sender_id_msb::2>> = ctl
 
+    # construct sender and target
     <<target_id::10, sender_id::10>> =
       <<target_id_msb::2, target_id::8, sender_id_msb::2, sender_id::8>>
 
-      IO.inspect(fifo, base: :hex, label: "fifo")
-      IO.inspect(length, label: "length")
-      IO.inspect(target_id, label: "sender")
-      IO.inspect(sender_id, label: "target")
-      IO.inspect(ctl, label: "ctl")
-
+    # rf69 does this, no idea why
     length = length - 3
 
-    {:ok, <<_, payload::binary>>} = HAL.spi_transfer(rf69.spi, <<0,0::length*8>>)
-    IO.inspect(payload, label: "packet_payload")
-    # <<payload::binary-size(length), _::binary>> = debug = payload
-
-
+    {:ok, <<_, payload::binary>>} = HAL.spi_transfer(rf69.spi, <<0, 0::length*8>>)
+    rssi = read_rssi(rf69)
 
     packet = %Packet{
       target_id: target_id,
@@ -375,8 +335,8 @@ defmodule RF69 do
       ack_requested?: ack_requested == 1,
       is_ack?: is_ack == 1,
       payload: payload,
-      # rssi: rssi,
-      # rssi_percent: RSSI.dbm_to_percent(rssi)
+      rssi: rssi,
+      rssi_percent: RSSI.dbm_to_percent(rssi)
     }
 
     send(rf69.receiver_pid, packet)
@@ -384,7 +344,7 @@ defmodule RF69 do
   end
 
   def send_packet(%RF69{} = rf69, %Packet{} = packet) do
-    <<interpacket_rx_delay::4, unused::1, _restart_rx::1, auto_rx_restart::1, aes_on::1>> =
+    <<interpacket_rx_delay::4, unused::1, _restart_rx::1, _auto_rx_restart::1, aes_on::1>> =
       read_reg_bin(rf69, :PACKETCONFIG2)
 
     write_reg(
@@ -420,8 +380,6 @@ defmodule RF69 do
 
     # select FIFO register
     {:ok, _} = HAL.spi_transfer(rf69.spi, <<0b10000000, send_packet::binary>>)
-    # {:ok, _} = HAL.spi_transfer(rf69.spi, send_packet)
-    Logger.info("Sending packet #{inspect(rf69)} #{inspect(packet)}")
 
     rf69
     |> set_mode(:TX)

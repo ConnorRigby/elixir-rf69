@@ -16,7 +16,7 @@ Interact with RFM69HCW radio modules via spi.
 * [x] Send packets
 * [x] Receive packets
 * [x] Auto Ack packets
-* [x] only 915 mhz is currently supported
+* [x] Support other frequencies
 * [x] AES encryption
 * [x] Basic Usage documentation
 * [x] RSSI value reading
@@ -24,13 +24,13 @@ Interact with RFM69HCW radio modules via spi.
 * [ ] Packet recv/send telemetry (because why not?)
 * [ ] Unit tests?
 
-# WARNINGS
+## WARNINGS
 
 Be sure to check your local laws for legal radio bands.
 
 ## Compatability
 
-Packets are encoded/decoded with the same format as 
+Packets are encoded/decoded with the same format as
 LowPowerLabs RF69 library version 1.4 ([described here](https://lowpowerlab.com/2019/05/02/rfm69-10bit-node-addresses/)).
 The goal is to have feature parity with the Arduino library.
 
@@ -39,7 +39,7 @@ The goal is to have feature parity with the Arduino library.
 Currently i've only tested on Raspberry Pi, but it should work
 on any device that [ElixirCircuits](https://elixir-circuits.github.io/) supports.
 
-# Usage
+## Usage
 
 ```elixir
 iex()> {:ok, pid} = RF69.start_link [
@@ -102,7 +102,7 @@ end
 
 ## Encryption
 
-AES Encryption is handled at the hardware level. All you as a developer need to 
+AES Encryption is handled at the hardware level. All you as a developer need to
 do is load the encryption key when starting the server.
 
 > WARNING:

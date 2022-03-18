@@ -188,19 +188,6 @@ defmodule RF69.Util do
     -read_reg(rf69, :RSSIVALUE) |> Bitwise.bsr(1)
   end
 
-  # defp block_until_rssi_done(rf69) do
-  #   case read_reg_bin(rf69, :RSSICONFIG) do
-  #     # sampling still
-  #     <<_unused::6, 0::1, _start::1>> = not_done ->
-  #       IO.inspect(not_done, label: "not_done")
-  #       block_until_rssi_done(rf69)
-
-  #     <<_unused::6, 1::1, _start::1>> ->
-  #       IO.puts "rssi sampling complete"
-  #       rf69
-  #   end
-  # end
-
   @doc "Blocks until packet_sent on IRQFLAGS2 is set. Timeout should be a low value"
   def block_until_packet_sent(rf69, timeout) when is_integer(timeout) do
     block_until_packet_sent(
@@ -319,7 +306,6 @@ defmodule RF69.Util do
         value = read_reg(rf69, read_reg)
 
         if value != read_value do
-          IO.puts("#{reg(read_reg)}=#{inspect(value)}")
           read_until(rf69, {read_reg, read_value}, timer)
         else
           Process.cancel_timer(timer)
@@ -374,19 +360,4 @@ defmodule RF69.Util do
     |> write_reg(:TESTDAGC, :DAGC_IMPROVED_LOWBETA0)
     |> write_reg(0x255, 0x0)
   end
-
-  # @doc "Helper to print out all register values"
-  # def read_all_reg_values(rf69) do
-  #   read_all_reg_values(rf69, 1, [])
-  # end
-
-  # def read_all_reg_values(rf69, addr, buffer) when addr <= 0x4F do
-  #   {:ok, _} = HAL.spi_transfer(rf69.spi, <<addr &&& 0x7F>>)
-  #   {:ok, <<value::integer-8>>} = HAL.spi_transfer(rf69.spi, <<0>>)
-  #   reg = :io_lib.format("~.16.0B - ~.16.0B - ~.2.0B", [addr, value, value])
-  #   read_all_reg_values(rf69, addr + 1, [reg | buffer])
-  # end
-
-  # def read_all_reg_values(_rf69, _, buffer),
-  #   do: Enum.reverse(buffer) |> Enum.join("\n") |> IO.puts()
 end
